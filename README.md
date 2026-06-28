@@ -47,8 +47,9 @@ type-to-create, with no extra dependency.
   it is already attached and its current directory. Text you typed is kept if
   you arrow away and back.
 - **`Esc`** drops to a plain shell (no tmux).
-- **Bilingual UI** following the system locale (English / Chinese built in,
-  trivially extensible to more).
+- **Localizable UI** with a small i18n table that follows the system locale.
+  English and Chinese ship by default; adding a language is one copy-paste block
+  (contributions welcome).
 - **Zero dependencies**, ~190 lines of bash, with a safe fallback to a one-line
   prompt when there is no TTY, no sessions, or anything goes wrong, so a
   terminal can never fail to open.
