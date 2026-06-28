@@ -8,8 +8,8 @@ Pure bash, zero dependencies: no fzf, no Go binary.
 Open a terminal and, *before* it attaches to tmux, you get an in-terminal menu:
 type a name to create a new session, or arrow-pick an existing one (with its
 attached state and working directory shown). The point: every terminal runs
-*transparently* in tmux, so what's running survives reconnects, window reloads,
-and laptop sleep.
+*transparently* in tmux, so what's running survives window reloads, quitting VS
+Code, SSH drops, and even shutting your laptop down.
 
 ![demo](demo-en.gif)
 
@@ -23,9 +23,10 @@ VS Code does not keep remote terminal processes alive across reconnects or
 window reloads. The highest-voted, still-open request on the VS Code remote
 backlog is [vscode-remote-release#3096][3096] (open for years). The usual
 workaround is to run every integrated terminal *transparently* inside a **tmux**
-session, so a window reload, SSH drop, or server restart doesn't kill what's
-running. Close your laptop, reconnect tomorrow from another machine, and your
-shells, builds, and REPLs are still there.
+session, so a window reload, SSH drop, or VS Code server restart doesn't kill
+what's running. Reload the window, quit VS Code, shut your laptop down, reconnect
+days later from a different machine, and your shells, builds, and REPLs are still
+running on the server.
 
 Once you do that, you need a way to say *which* tmux session a new terminal
 attaches to. tmux's own `choose-tree` only works once you're already inside a
@@ -52,10 +53,12 @@ type-to-create, with no extra dependency.
 
 ## Requirements
 
-- bash ≥ 4.3 (associative arrays + namerefs, for the i18n table)
-- tmux ≥ 3.3
-- A VS Code integrated terminal on Linux (Remote-SSH or local). The persistence
-  benefit is for **Remote-SSH**; locally it still works as a session picker.
+- bash ≥ 4.3 and tmux ≥ 3.3 **on the machine where the terminals actually run**,
+  i.e. the remote host in a Remote-SSH setup. Your local client OS does not
+  matter (a macOS laptop driving a Linux remote is fine).
+- A Linux VS Code integrated terminal (Remote-SSH, or local Linux). The
+  persistence payoff is for **Remote-SSH**; on a local box it is still a session
+  picker.
 
 ## Install
 
@@ -144,7 +147,10 @@ sentinel exit code so the parent `exec`s a plain shell instead.
 - Many sessions can overflow a short terminal (the menu does not scroll yet).
 - Interactive editing/rendering needs a real TTY; without one it falls back to a
   one-line prompt.
-- bash 4.3+ only (macOS ships 3.2 — `brew install bash` if you run it locally).
+- Needs bash 4.3+ on the host that runs it. In Remote-SSH that is the **remote**,
+  so a macOS client is fine; it only matters if you run the script on a local
+  macOS box (bash 3.2 there; `brew install bash`).
+- Only a reboot of the remote host itself ends a session (tmux dies with it).
 
 ## License
 
