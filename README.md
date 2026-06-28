@@ -127,6 +127,8 @@ plus one VS Code setting so right-click pastes:
 | `VSCT_PREFIX` | `vsct` | prefix for disposable auto-names `<prefix>-<pid>` |
 | `VSCT_LANG`   | system locale | force the UI language (`en`, `zh`, …) |
 
+The UI follows the system locale: a Chinese locale gets the Chinese interface,
+**everything else (and any unrecognized `VSCT_LANG`) falls back to English**.
 (`vsct` = **VSCode Terminal**, the prefix the transparent-tmux terminals use.)
 
 ## Adding a language

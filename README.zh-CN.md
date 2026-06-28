@@ -94,6 +94,7 @@ unbind -T root MouseDown3Pane          # 把右键还给 VS Code
 | `VSCT_PREFIX` | `vsct` | 用完即弃自动名的前缀 `<prefix>-<pid>` |
 | `VSCT_LANG`   | 系统 locale | 强制界面语言（`en`、`zh`…） |
 
+界面跟随系统 locale：中文 locale 出中文界面，**其它语言（以及无法识别的 `VSCT_LANG`）一律回退英文**。
 （`vsct` = **VSCode Terminal**，即透明 tmux 终端用的前缀。）
 
 ## 加一种语言
