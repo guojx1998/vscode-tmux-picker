@@ -1,11 +1,15 @@
+[English](README.md) | [中文](README.zh-CN.md)
+
 # vscode-tmux-picker
 
 A tiny **pre-attach tmux session picker** for the VS Code integrated terminal.
-Pure bash, zero dependencies — no fzf, no Go binary.
+Pure bash, zero dependencies: no fzf, no Go binary.
 
 Open a terminal and, *before* it attaches to tmux, you get an in-terminal menu:
 type a name to create a new session, or arrow-pick an existing one (with its
-attached state and working directory shown).
+attached state and working directory shown). The point: every terminal runs
+*transparently* in tmux, so what's running survives reconnects, window reloads,
+and laptop sleep.
 
 ![demo](demo-en.gif)
 
@@ -16,15 +20,17 @@ The UI follows your system locale. Chinese locale → Chinese interface:
 ## Why
 
 VS Code does not keep remote terminal processes alive across reconnects or
-window reloads — the highest-voted, still-open request on the VS Code remote
+window reloads. The highest-voted, still-open request on the VS Code remote
 backlog is [vscode-remote-release#3096][3096] (open for years). The usual
-workaround is to run every integrated terminal inside a **tmux** session, so a
-window reload / SSH drop / server restart doesn't kill what's running.
+workaround is to run every integrated terminal *transparently* inside a **tmux**
+session, so a window reload, SSH drop, or server restart doesn't kill what's
+running. Close your laptop, reconnect tomorrow from another machine, and your
+shells, builds, and REPLs are still there.
 
 Once you do that, you need a way to say *which* tmux session a new terminal
 attaches to. tmux's own `choose-tree` only works once you're already inside a
 session; this tool moves that choice to the moment the terminal opens, and adds
-type-to-create — with no extra dependency.
+type-to-create, with no extra dependency.
 
 [3096]: https://github.com/microsoft/vscode-remote-release/issues/3096
 
