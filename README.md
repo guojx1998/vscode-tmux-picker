@@ -7,9 +7,11 @@ Pure bash, zero dependencies: no fzf, no Go binary.
 
 Open a terminal and, *before* it attaches to tmux, you get an in-terminal menu:
 type a name to create a new session, or arrow-pick an existing one (with its
-attached state and working directory shown). The point: every terminal runs
-*transparently* in tmux, so what's running survives window reloads, quitting VS
-Code, SSH drops, and even shutting your laptop down.
+attached state and working directory shown). Every terminal runs *transparently*
+in tmux, so what's running survives window reloads. It shines over
+**Remote-SSH**, where the work lives on the remote, not your laptop: quit VS Code
+or shut your laptop down, reconnect later from any machine, everything still
+running. (Locally it's still a handy session picker.)
 
 ![demo](demo-en.gif)
 
