@@ -37,18 +37,18 @@ type-to-create, with no extra dependency.
 
 ## Features
 
-- **Pick before attach** — the menu shows up in the TTY as the terminal opens.
-- **Type to create** — row 0 is an input box with a movable block cursor
+- **Pick before attach**: the menu shows up in the TTY as the terminal opens.
+- **Type to create**: row 0 is an input box with a movable block cursor
   (`←`/`→` to move, `Backspace`/`Delete` to edit). Empty = a disposable auto
   name `vsct-<pid>`.
-- **Arrow-pick existing** — `↑`/`↓` through live sessions, each showing whether
+- **Arrow-pick existing**: `↑`/`↓` through live sessions, each showing whether
   it is already attached and its current directory. Text you typed is kept if
   you arrow away and back.
 - **`Esc`** drops to a plain shell (no tmux).
 - **Bilingual UI** following the system locale (English / Chinese built in,
   trivially extensible to more).
 - **Zero dependencies**, ~190 lines of bash, with a safe fallback to a one-line
-  prompt when there is no TTY, no sessions, or anything goes wrong — so a
+  prompt when there is no TTY, no sessions, or anything goes wrong, so a
   terminal can never fail to open.
 
 ## Requirements
@@ -98,8 +98,8 @@ settings and recommended `~/.tmux.conf` snippets to merge. Or do it by hand:
 
 ## Recommended tmux config (scroll / copy / paste)
 
-The picker only chooses the session. For a good tmux experience — mouse-wheel
-scrollback, drag-to-copy, right-click paste — add these to `~/.tmux.conf`:
+The picker only chooses the session. For a good tmux experience (mouse-wheel
+scrollback, drag-to-copy, right-click paste), add these to `~/.tmux.conf`:
 
 ```tmux
 set -g mouse on
@@ -125,7 +125,7 @@ plus one VS Code setting so right-click pastes:
 | `VSCT_PREFIX` | `vsct` | prefix for disposable auto-names `<prefix>-<pid>` |
 | `VSCT_LANG`   | system locale | force the UI language (`en`, `zh`, …) |
 
-(`vsct` = **VSCode Terminal** — the prefix the transparent-tmux terminals use.)
+(`vsct` = **VSCode Terminal**, the prefix the transparent-tmux terminals use.)
 
 ## Adding a language
 
