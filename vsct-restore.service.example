@@ -1,0 +1,18 @@
+# vsct-restore.service — restore tmux sessions at boot (systemd USER unit).
+# Install:  cp vsct-restore.service.example ~/.config/systemd/user/vsct-restore.service
+#           systemctl --user daemon-reload && systemctl --user enable vsct-restore
+#           loginctl enable-linger "$USER"    # start at boot without a login
+# To also get notified (ping/webhook/...), wrap the ExecStart in your own
+# script that calls `vsct-persist.py restore` and forwards its stdout summary.
+[Unit]
+Description=vsct: restore tmux sessions from the last snapshot
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=%h/.local/bin/vsct-persist.py restore
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

@@ -97,6 +97,48 @@ unbind -T root MouseDown3Pane          # 把右键还给 VS Code
 界面跟随系统 locale：中文 locale 出中文界面，**其它语言（以及无法识别的 `VSCT_LANG`）一律回退英文**。
 （`vsct` = **VSCode Terminal**，即透明 tmux 终端用的前缀。）
 
+## 跨重启会话持久化（可选附加件）
+
+tmux 随主机一起死，重启一次会话全没。`vsct-persist.py` 附加件把它们带回来：
+
+- cron 每 2 分钟把活着的会话（名字、窗口/pane、cwd、每个 pane 里跑的命令）快照到
+  `~/.local/state/vsct/snapshot.json`；
+- 开机时 systemd **user** 单元**同名重建**这些会话，之后 picker 一如既往地接入，
+  像什么都没发生过；
+- 之前跑着 **Claude Code**（裸 `claude` 或
+  [`happy`](https://github.com/slopus/happy) 包裹）的 pane 会自动带
+  `--resume <会话id>` 重新拉起，**对话本身**跨过这次重启；
+- 其它长跑命令**只预填不执行**（开机自动重跑任意命令这种事本工具不干），
+  普通 shell 回到原 cwd。
+
+Claude 会话 id 按优先级恢复自：进程树里已有的 `--resume` 参数；
+`~/.claude/projects/` 下能唯一归属的活跃 transcript；上一份快照
+（pid+starttime 未变时）。都钉不住时，命令只预填一个裸 `--resume`：
+回车即进 Claude 自带的会话选择器。**它从不猜**：resume 错对话比不 resume 更糟。
+
+```bash
+./install-persist.sh    # 拷贝脚本，打印 cron 行 + unit 装法
+```
+
+安全性质：restore 只*新建*会话（绝不杀/覆盖已有的）；
+`touch ~/.local/state/vsct/restore-disabled` 一键停用；`<prefix>-*` 用完即弃
+会话只在里面跑着 Claude 族进程时才持久化；env 捕获是严格白名单
+（仅 `CLAUDE_CONFIG_DIR`，wrapper 环境里的 secret 永远不读不存）；
+重启后快照会暂停，直到 restore 跑过，半恢复状态不可能覆盖重启前的快照。
+
+可选配置 `~/.config/vsct/persist.conf`：
+
+```ini
+# 不碰的会话（例如由某个 systemd service 自己管理/自己 resume 的）
+exclude = my-service-session
+# 白名单 env 命中 glob 时改用个人 wrapper 重建
+# （适用于必须自己 source 私有 env 的 wrapper，那些 env 本工具拒绝捕获）：
+cmdmap = CLAUDE_CONFIG_DIR : */.claude-alt : my-claude-alt : 2
+```
+
+已知边界：突然断电前最后 ≤2 分钟新建的会话会丢；scrollback 文本不恢复
+（Claude pane 的对话本身会回来，那才是要紧的部分）。
+
 ## 加一种语言
 
 界面字符串以关联数组目录的形式放在脚本顶部。复制 `MSG_en`、翻译它的值、命名为 `MSG_<code>`，再在 `detect_lang()` 里加一条匹配即可。`[auto]` 里的 `{name}` 会被替换成自动名；`[attached_pad]` 必须是与 `[attached]` 等显示宽度的空格。
@@ -110,7 +152,7 @@ unbind -T root MouseDown3Pane          # 把右键还给 VS Code
 - 会话很多时可能撑出短终端的可视区（菜单暂不滚动）。
 - 交互编辑 / 渲染需要真 TTY；没有时回退到单行提示。
 - 需要**跑它的那台机器**有 bash 4.3+。Remote-SSH 下那是**远端**，所以 macOS 客户端没问题；只有当你在本地 macOS（自带 bash 3.2）上跑它才需 `brew install bash`。
-- 只有远端主机自己重启才会结束会话（tmux 随之消失）。
+- 只有远端主机自己重启才会结束会话（tmux 随之消失），除非启用[持久化附加件](#跨重启会话持久化可选附加件)。
 
 ## 许可
 

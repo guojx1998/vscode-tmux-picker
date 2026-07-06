@@ -132,6 +132,55 @@ The UI follows the system locale: a Chinese locale gets the Chinese interface,
 **everything else (and any unrecognized `VSCT_LANG`) falls back to English**.
 (`vsct` = **VSCode Terminal**, the prefix the transparent-tmux terminals use.)
 
+## Session persistence across reboots (optional add-on)
+
+tmux dies with the host, so a reboot normally wipes every session. The
+`vsct-persist.py` add-on brings them back:
+
+- a cron job snapshots the live sessions (names, windows/panes, cwd, and the
+  command each pane runs) to `~/.local/state/vsct/snapshot.json` every 2 min;
+- a systemd **user** unit recreates them **under the same names** at boot;
+  the picker then attaches to the restored sessions as if nothing happened;
+- panes that were running **Claude Code** (plain `claude` or wrapped in
+  [`happy`](https://github.com/slopus/happy)) are relaunched with
+  `--resume <session-id>`, so the *conversation* survives the reboot;
+- any other long-running command is **pre-typed but not executed** (auto-rerunning
+  arbitrary commands at boot is not a thing this tool will do), and plain
+  shells just come back at their old cwd.
+
+The Claude session id is recovered from, in order: `--resume` flags already in
+the process tree; the uniquely-attributable actively-written transcript under
+`~/.claude/projects/`; the previous snapshot (while pid+starttime match). If
+none of those pins an id, the command is pre-typed with a bare `--resume`:
+Enter opens Claude's own session picker. **It never guesses**: resuming the
+wrong conversation would be worse than not resuming.
+
+```bash
+./install-persist.sh    # copies the script, prints the cron line + unit setup
+```
+
+Safety properties: restore only *creates* sessions (never kills or replaces);
+`touch ~/.local/state/vsct/restore-disabled` disables it; disposable
+`<prefix>-*` sessions are only persisted while a Claude-family process runs
+inside; env capture is a strict allowlist (`CLAUDE_CONFIG_DIR` only; secrets
+in wrapper environments are never read or stored); after a reboot, snapshots
+are paused until restore has run, so a half-restored boot can't overwrite the
+pre-reboot state.
+
+Optional `~/.config/vsct/persist.conf`:
+
+```ini
+# sessions to leave alone (e.g. owned by a systemd service that resumes itself)
+exclude = my-service-session
+# relaunch via a personal wrapper function when an allowlisted env var matches
+# (for wrappers that must re-source private env this tool refuses to capture):
+cmdmap = CLAUDE_CONFIG_DIR : */.claude-alt : my-claude-alt : 2
+```
+
+Known limits: sessions created in the last ≤2 min before an abrupt power loss
+are lost; scrollback text is not restored (for Claude panes the conversation
+itself comes back, which is the part that matters).
+
 ## Adding a language
 
 UI strings live in associative-array catalogs near the top of the script. Copy
@@ -155,7 +204,8 @@ sentinel exit code so the parent `exec`s a plain shell instead.
 - Needs bash 4.3+ on the host that runs it. In Remote-SSH that is the **remote**,
   so a macOS client is fine; it only matters if you run the script on a local
   macOS box (bash 3.2 there; `brew install bash`).
-- Only a reboot of the remote host itself ends a session (tmux dies with it).
+- Only a reboot of the remote host itself ends a session (tmux dies with it),
+  unless you enable the [persistence add-on](#session-persistence-across-reboots-optional-add-on).
 
 ## License
 
