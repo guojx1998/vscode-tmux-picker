@@ -11,13 +11,19 @@
 #              is pre-typed into the pane but NOT executed.
 #
 # How the Claude session id is recovered, in order of trust:
+#   pane     the pane -> session-id map written by a statusline hook (see
+#            "Statusline integration" in the README): exact, survives /clear,
+#            works for fresh sessions and same-cwd siblings. Trusted only if
+#            it provably belongs to the process currently in the pane.
 #   argv     any `--resume/--session-id <uuid>` in the pane's process tree —
 #            covers every session that was itself started with --resume, which
 #            after one restore cycle is all of them (steady state).
 #   jsonl    the single actively-written (mtime < 10 min) transcript
-#            `<uuid>.jsonl` under ~/.claude/projects/<munged-cwd>/ that is not
-#            already claimed by another process's argv — covers fresh sessions
-#            while they are active (the periodic snapshot pins the id).
+#            `<uuid>.jsonl` under <config-dir>/projects/<munged-cwd>/ that is
+#            not already claimed by another process's argv — only trusted when
+#            this (config-dir, cwd) has exactly ONE id-less claude pane;
+#            with siblings the lone active transcript could belong to any of
+#            them and pinning it would resume the wrong conversation.
 #   carried  the id recorded by a previous snapshot for the same pane while
 #            (pid, starttime) are unchanged — keeps the id once the session
 #            goes idle.
@@ -188,11 +194,44 @@ def strip_session_flags(args):
         out.append(tok)
     return out
 
-def proj_dir(cwd):
-    return os.path.expanduser("~/.claude/projects/" + re.sub(r"[^A-Za-z0-9]", "-", cwd))
+MAP_DIR = os.path.join(STATE_DIR, "pane-sid")
 
-def active_jsonls(cwd):
-    d, now, got = proj_dir(cwd), time.time(), []
+def pane_map_sid(pane_id, cand, tree):
+    """Exact pane -> session-id mapping maintained by the statusline hook.
+    Trusted only when it provably belongs to the process now in the pane:
+    the writer's parent must be that process (or one of its descendants),
+    or the file must have been written after the process started — a stale
+    map from a previous occupant of the pane fails both checks."""
+    if not pane_id:
+        return None
+    path = os.path.join(MAP_DIR, pane_id.lstrip("%"))
+    try:
+        with open(path) as f:
+            m = json.load(f)
+        mtime = os.path.getmtime(path)
+    except (OSError, ValueError):
+        return None
+    sid = str(m.get("sid", ""))
+    if m.get("pane") != pane_id or not UUID_RE.match(sid):
+        return None
+    if m.get("ppid") == cand or m.get("ppid") in descendants(cand, tree):
+        return sid
+    try:
+        with open("/proc/uptime") as f:
+            boot_epoch = time.time() - float(f.read().split()[0])
+        hz = os.sysconf("SC_CLK_TCK") or 100
+    except (OSError, ValueError):
+        return None
+    if mtime > boot_epoch + starttime(cand) / hz:
+        return sid
+    return None
+
+def proj_dir(cwd, config_dir=None):
+    base = config_dir or os.path.expanduser("~/.claude")
+    return os.path.join(base, "projects", re.sub(r"[^A-Za-z0-9]", "-", cwd))
+
+def active_jsonls(cwd, config_dir=None):
+    d, now, got = proj_dir(cwd, config_dir), time.time(), []
     try:
         for fn in os.listdir(d):
             sid, ext = os.path.splitext(fn)
@@ -218,7 +257,7 @@ def take_snapshot(force=False):
         return 0                       # silently keep the previous snapshot
     r = tmux(["list-panes", "-a", "-F",
               "#{session_name}\t#{window_index}\t#{window_name}\t#{window_layout}"
-              "\t#{pane_index}\t#{pane_current_path}\t#{pane_pid}"])
+              "\t#{pane_index}\t#{pane_current_path}\t#{pane_pid}\t#{pane_id}"])
     if r.returncode != 0:
         return 0                       # no tmux server -> nothing to record
 
@@ -236,10 +275,10 @@ def take_snapshot(force=False):
     panes = []
     for line in r.stdout.splitlines():
         f = line.split("\t")
-        if len(f) != 7:
+        if len(f) != 8:
             continue
         panes.append(dict(sess=f[0], widx=int(f[1]), wname=f[2], layout=f[3],
-                          pidx=int(f[4]), cwd=f[5], pid=int(f[6])))
+                          pidx=int(f[4]), cwd=f[5], pid=int(f[6]), pane_id=f[7]))
 
     # pass 1: session ids already claimed by some process's argv
     claimed = set()
@@ -249,7 +288,8 @@ def take_snapshot(force=False):
             if s:
                 claimed.add(s)
 
-    sessions = {}
+    # pass 2: what runs in each pane + ids provable from that pane's own argv
+    sessions, pending, idless = {}, [], {}
     for p in panes:
         if p["sess"] in CONF["exclude"]:
             continue
@@ -275,26 +315,42 @@ def take_snapshot(force=False):
             else:
                 rec["args"] = strip_session_flags(args)
                 rec["env"] = environ_allowed(cand)
-                sid = None
-                for d in [cand] + descendants(cand, tree):
-                    sid = extract_sid(cmdline(d))
-                    if sid:
-                        rec.update(sid=sid, sid_src="argv")
-                        break
-                if not sid:
-                    un = [s for s in active_jsonls(p["cwd"]) if s not in claimed]
-                    if len(un) == 1:
-                        rec.update(sid=un[0], sid_src="jsonl")
-                        claimed.add(un[0])
+                sid = pane_map_sid(p.get("pane_id"), cand, tree)
+                if sid:
+                    rec.update(sid=sid, sid_src="pane")
+                    claimed.add(sid)
                 if not rec["sid"]:
-                    old = prev.get((p["sess"], p["widx"], p["pidx"]))
-                    if old and old.get("sid") and old.get("pid") == cand \
-                       and old.get("start") == starttime(cand):
-                        rec.update(sid=old["sid"], sid_src="carried")
+                    for d in [cand] + descendants(cand, tree):
+                        sid = extract_sid(cmdline(d))
+                        if sid:
+                            rec.update(sid=sid, sid_src="argv")
+                            break
+                if not rec["sid"]:
+                    key = (rec["env"].get("CLAUDE_CONFIG_DIR"), p["cwd"])
+                    idless[key] = idless.get(key, 0) + 1
+                    pending.append((p, rec, cand, key))
         sess = sessions.setdefault(p["sess"], {})
         win = sess.setdefault(p["widx"], dict(idx=p["widx"], name=p["wname"],
                                               layout=p["layout"], panes=[]))
         win["panes"].append(rec)
+
+    # pass 3: id-less claude panes — transcript heuristic, then carry-over.
+    # The lone active jsonl is only trustworthy when this (config-dir, cwd)
+    # has exactly ONE id-less claude pane: with siblings it could belong to
+    # any of them, and pinning it to whichever pane comes first would resume
+    # the WRONG conversation after a reboot. On ambiguity fall back to the
+    # carried id (process unchanged) or stay unpinned (pre-type only).
+    for p, rec, cand, key in pending:
+        if idless.get(key) == 1:
+            un = [s for s in active_jsonls(p["cwd"], key[0]) if s not in claimed]
+            if len(un) == 1:
+                rec.update(sid=un[0], sid_src="jsonl")
+                claimed.add(un[0])
+        if not rec["sid"]:
+            old = prev.get((p["sess"], p["widx"], p["pidx"]))
+            if old and old.get("sid") and old.get("pid") == cand \
+               and old.get("start") == starttime(cand):
+                rec.update(sid=old["sid"], sid_src="carried")
 
     out = []
     for name, wins in sessions.items():
@@ -313,6 +369,14 @@ def take_snapshot(force=False):
         os.replace(SNAP, SNAP_BAK)
     os.replace(tmp, SNAP)
     _trim_log()
+    try:                               # drop pane-sid entries idle for a week
+        cutoff = time.time() - 7 * 86400
+        for fn in os.listdir(MAP_DIR):
+            fp = os.path.join(MAP_DIR, fn)
+            if os.path.getmtime(fp) < cutoff:
+                os.unlink(fp)
+    except OSError:
+        pass
     return 0
 
 def _trim_log():

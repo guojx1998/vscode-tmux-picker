@@ -148,12 +148,16 @@ tmux dies with the host, so a reboot normally wipes every session. The
   arbitrary commands at boot is not a thing this tool will do), and plain
   shells just come back at their old cwd.
 
-The Claude session id is recovered from, in order: `--resume` flags already in
-the process tree; the uniquely-attributable actively-written transcript under
-`~/.claude/projects/`; the previous snapshot (while pid+starttime match). If
-none of those pins an id, the command is pre-typed with a bare `--resume`:
-Enter opens Claude's own session picker. **It never guesses**: resuming the
-wrong conversation would be worse than not resuming.
+The Claude session id is recovered from, in order: the pane map maintained by
+the optional [statusline hook](#statusline-integration-recommended-exact-ids-for-every-pane)
+below (exact, survives `/clear`); `--resume` flags already in the process
+tree; the actively-written transcript under `<config-dir>/projects/`, trusted
+only when the pane is the sole id-less Claude in its config-dir+cwd (a lone
+active transcript among same-cwd siblings could belong to any of them); the
+previous snapshot (while pid+starttime match). If none of those pins an id,
+the command is pre-typed with a bare `--resume`: Enter opens Claude's own
+session picker. **It never guesses**: resuming the wrong conversation would be
+worse than not resuming.
 
 ```bash
 ./install-persist.sh    # copies the script, prints the cron line + unit setup
@@ -176,6 +180,41 @@ exclude = my-service-session
 # (for wrappers that must re-source private env this tool refuses to capture):
 cmdmap = CLAUDE_CONFIG_DIR : */.claude-alt : my-claude-alt : 2
 ```
+
+### Statusline integration (recommended): exact ids for every pane
+
+The argv/transcript heuristics cannot tell same-cwd sibling sessions apart,
+and they never see a fresh session started without `--resume` (or one that
+renewed its id with `/clear`). Claude Code's statusline can: on every refresh
+it receives the current `session_id` on stdin, and it runs inside the pane, so
+it knows `$TMUX_PANE`. Append this to your statusline script, after it prints
+its line, and every pane gets an exact, always-current id:
+
+```bash
+# vsct: record pane -> session-id for vsct-persist.py (no secrets, silent on failure)
+if [ -n "${TMUX_PANE:-}" ]; then
+    vsid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+    if [ -n "$vsid" ]; then
+        vdir="$HOME/.local/state/vsct/pane-sid"
+        { mkdir -p "$vdir" &&
+          printf '{"pane":"%s","sid":"%s","ppid":%s,"ts":%s}\n' \
+              "$TMUX_PANE" "$vsid" "${PPID:-0}" "$(date +%s)" > "$vdir/.tmp.$$" &&
+          mv -f "$vdir/.tmp.$$" "$vdir/${TMUX_PANE#%}"; } 2>/dev/null || true
+    fi
+fi
+```
+
+Here `$input` is the JSON payload your statusline already reads from stdin
+(`input=$(cat)`). If you have no statusline yet, a script containing just that
+line plus the block above works; point `statusLine.command` at it in
+`~/.claude/settings.json`. If you moved the state dir via `VSCT_STATE_DIR`,
+adjust `vdir` to match.
+
+The snapshot trusts a map entry only when it can prove the entry belongs to
+the process currently in the pane (the writer's parent pid is that process or
+a descendant, or the file was written after the process started), so stale
+entries left by a pane's previous occupant are ignored. Entries idle for a
+week are cleaned up automatically.
 
 Known limits: sessions created in the last ≤2 min before an abrupt power loss
 are lost; scrollback text is not restored (for Claude panes the conversation

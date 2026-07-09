@@ -111,10 +111,13 @@ tmux 随主机一起死，重启一次会话全没。`vsct-persist.py` 附加件
 - 其它长跑命令**只预填不执行**（开机自动重跑任意命令这种事本工具不干），
   普通 shell 回到原 cwd。
 
-Claude 会话 id 按优先级恢复自：进程树里已有的 `--resume` 参数；
-`~/.claude/projects/` 下能唯一归属的活跃 transcript；上一份快照
-（pid+starttime 未变时）。都钉不住时，命令只预填一个裸 `--resume`：
-回车即进 Claude 自带的会话选择器。**它从不猜**：resume 错对话比不 resume 更糟。
+Claude 会话 id 按优先级恢复自：下文可选 [statusline 挂钩](#statusline-集成推荐每个-pane-拿到精确-id)
+维护的 pane 映射（精确，`/clear` 换 id 也跟得上）；进程树里已有的 `--resume`
+参数；`<config-dir>/projects/` 下的活跃 transcript，且仅当该 config-dir+cwd
+下**恰好一个**没有 id 的 Claude pane 时才采信（同 cwd 开着多个会话时，唯一
+活跃的 transcript 可能属于其中任何一个）；上一份快照（pid+starttime 未变时）。
+都钉不住时，命令只预填一个裸 `--resume`：回车即进 Claude 自带的会话选择器。
+**它从不猜**：resume 错对话比不 resume 更糟。
 
 ```bash
 ./install-persist.sh    # 拷贝脚本，打印 cron 行 + unit 装法
@@ -135,6 +138,37 @@ exclude = my-service-session
 # （适用于必须自己 source 私有 env 的 wrapper，那些 env 本工具拒绝捕获）：
 cmdmap = CLAUDE_CONFIG_DIR : */.claude-alt : my-claude-alt : 2
 ```
+
+### statusline 集成（推荐）：每个 pane 拿到精确 id
+
+argv/transcript 启发式分不清同 cwd 的兄弟会话，也看不见没带 `--resume` 新起
+（或用 `/clear` 换过 id）的会话。Claude Code 的 statusline 可以：每次刷新它
+都从 stdin 收到当前 `session_id`，而且它就跑在 pane 里，知道 `$TMUX_PANE`。
+把下面这段追加到你的 statusline 脚本末尾（输出状态行之后），每个 pane 就有了
+精确且始终最新的 id：
+
+```bash
+# vsct: record pane -> session-id for vsct-persist.py (no secrets, silent on failure)
+if [ -n "${TMUX_PANE:-}" ]; then
+    vsid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+    if [ -n "$vsid" ]; then
+        vdir="$HOME/.local/state/vsct/pane-sid"
+        { mkdir -p "$vdir" &&
+          printf '{"pane":"%s","sid":"%s","ppid":%s,"ts":%s}\n' \
+              "$TMUX_PANE" "$vsid" "${PPID:-0}" "$(date +%s)" > "$vdir/.tmp.$$" &&
+          mv -f "$vdir/.tmp.$$" "$vdir/${TMUX_PANE#%}"; } 2>/dev/null || true
+    fi
+fi
+```
+
+其中 `$input` 就是你的 statusline 已经从 stdin 读进来的 JSON
+（`input=$(cat)`）。还没有 statusline 的话，一个只含这一行加上面代码块的脚本
+即可，在 `~/.claude/settings.json` 里把 `statusLine.command` 指过去。若用
+`VSCT_STATE_DIR` 挪过状态目录，`vdir` 同步改。
+
+快照只在能证明映射属于 pane 里当前进程时才采信（写入者的父 pid 是该进程或其
+后代，或文件写于该进程启动之后），pane 前任留下的陈旧映射会被忽略。一周没
+更新的映射条目自动清理。
 
 已知边界：突然断电前最后 ≤2 分钟新建的会话会丢；scrollback 文本不恢复
 （Claude pane 的对话本身会回来，那才是要紧的部分）。
