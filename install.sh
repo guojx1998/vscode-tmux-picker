@@ -41,6 +41,12 @@ cat <<EOF
   set -g set-titles on
   set -g set-titles-string '#S'
   unbind -T root MouseDown3Pane
+  # keyboard scrollback: PgUp enters scroll mode; Home/End = top / back out
+  bind -n PPage if -F '#{alternate_on}' 'send-keys PPage' 'copy-mode -eu'
+  bind -T copy-mode    Home send -X history-top
+  bind -T copy-mode    End  send -X cancel
+  bind -T copy-mode-vi Home send -X history-top
+  bind -T copy-mode-vi End  send -X cancel
 
 3) VS Code: right-click = paste
 

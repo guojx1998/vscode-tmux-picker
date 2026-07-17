@@ -79,6 +79,14 @@ set -g focus-events on
 set -g set-titles on
 set -g set-titles-string '#S'
 unbind -T root MouseDown3Pane          # 把右键还给 VS Code
+
+# 键盘回滚：PgUp 免 prefix 直接进滚动模式；PgUp/PgDn 翻页，Home/End 跳顶/回底，
+# 翻回最底自动退出。vim/less/htop 等全屏程序内 PgUp 原样透传给程序。
+bind -n PPage if -F '#{alternate_on}' 'send-keys PPage' 'copy-mode -eu'
+bind -T copy-mode    Home send -X history-top
+bind -T copy-mode    End  send -X cancel
+bind -T copy-mode-vi Home send -X history-top
+bind -T copy-mode-vi End  send -X cancel
 ```
 
 再加一条 VS Code 设置，让右键粘贴：

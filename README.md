@@ -113,6 +113,15 @@ set -g focus-events on
 set -g set-titles on
 set -g set-titles-string '#S'
 unbind -T root MouseDown3Pane          # hand right-click back to VS Code
+
+# Keyboard scrollback: PgUp enters scroll mode directly (no prefix needed);
+# PgUp/PgDn page, Home/End jump to top / back to bottom, paging back to the
+# bottom exits. Inside full-screen apps (vim/less/htop) PgUp is passed through.
+bind -n PPage if -F '#{alternate_on}' 'send-keys PPage' 'copy-mode -eu'
+bind -T copy-mode    Home send -X history-top
+bind -T copy-mode    End  send -X cancel
+bind -T copy-mode-vi Home send -X history-top
+bind -T copy-mode-vi End  send -X cancel
 ```
 
 plus one VS Code setting so right-click pastes:
