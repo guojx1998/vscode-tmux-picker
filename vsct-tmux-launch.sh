@@ -37,9 +37,11 @@
 #     lands in `foo-bar` — you ask for a dead session and end up inside its
 #     neighbour instead of the terminal closing. `set -t` takes a pane target,
 #     which rejects the '=' form; only the target-session of attach gets it.
-#   * `read` returning empty means Enter *or* EOF. Ctrl-D must not be read as
-#     Enter: that would commit whatever row happens to be highlighted. Every read
-#     in the menu checks its exit status and treats failure as "drop to a shell".
+#   * `read` returning empty means Enter *or* EOF, so every read checks its exit
+#     status: a closed or exhausted stdin must not commit the highlighted row.
+#     This is not the Ctrl-D path. `read -sn1` leaves the tty non-canonical, so
+#     Ctrl-D arrives as a plain 0x04 byte that matches no branch and does
+#     nothing; only the canonical fallback prompt ever sees it as EOF.
 
 # --- i18n -------------------------------------------------------------------
 # Add a language: copy MSG_en, translate the values, name it MSG_<code>, and add
