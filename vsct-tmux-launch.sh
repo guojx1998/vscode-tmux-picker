@@ -32,6 +32,14 @@
 #     are delimited with ':' (tmux forbids ':' in session names, turning it into
 #     '_'). The session name is the LAST field, so any ':' inside a path stays in
 #     the path, not the name.
+#   * The attach target goes in as "=<name>". Without the '=', tmux falls back
+#     to prefix matching when the exact name is gone, so `attach -t foo` silently
+#     lands in `foo-bar` — you ask for a dead session and end up inside its
+#     neighbour instead of the terminal closing. `set -t` takes a pane target,
+#     which rejects the '=' form; only the target-session of attach gets it.
+#   * `read` returning empty means Enter *or* EOF. Ctrl-D must not be read as
+#     Enter: that would commit whatever row happens to be highlighted. Every read
+#     in the menu checks its exit status and treats failure as "drop to a shell".
 
 # --- i18n -------------------------------------------------------------------
 # Add a language: copy MSG_en, translate the values, name it MSG_<code>, and add
@@ -84,7 +92,7 @@ unset -n _CAT 2>/dev/null; unset _a _lang
 # --- one-line fallback (no TTY / no sessions / error) -----------------------
 classic_read() {
   local r
-  read -rp "$PROMPT" r
+  read -rp "$PROMPT" r || return 2               # EOF (Ctrl-D) -> plain shell
   printf '%s' "${r:-$AUTO}"
 }
 
@@ -142,7 +150,7 @@ pick_session() {
   }
   draw_menu
   while true; do
-    IFS= read -rsn1 key
+    IFS= read -rsn1 key || { printf '\e8\e[J' >&2; return 2; }   # EOF, not Enter
     case $key in
       $'\x1b')  # ESC: bare Esc (exit) or an arrow / Delete sequence. Timeout = bare.
         read -rsn1 -t 0.3 k2
@@ -187,7 +195,13 @@ printf '\e]2;%s\a' "$s"
 #   3. inject VSCODE_* vars so `code <file>` works from inside tmux too
 vars=(TERM_PROGRAM TERM_PROGRAM_VERSION VSCODE_IPC_HOOK_CLI VSCODE_IPC_HOOK VSCODE_PID VSCODE_CWD VSCODE_NLS_CONFIG VSCODE_GIT_IPC_HANDLE VSCODE_INJECTION VSCODE_SHELL_INTEGRATION)
 eargs=(); for v in "${vars[@]}"; do eargs+=( -e "$v=${!v-}" ); done
-#   4. attach if it exists else create, hide tmux's own status bar, attach
-tmux new-session -dA -s "$s" -c "$PWD" "${eargs[@]}"
-tmux set -t "$s" status off
-exec tmux attach -t "$s"
+#   4. attach if it exists else create, hide tmux's own status bar, attach.
+#      A failed create must not fall through to the attach: with $s then absent,
+#      tmux would prefix-match a same-stem neighbour and drop you in there.
+if ! tmux new-session -dA -s "$s" -c "$PWD" "${eargs[@]}"; then
+  printf 'tmux: cannot open session %s — falling back to a plain shell\n' "$s" >&2
+  exec "${SHELL:-/bin/bash}" -l
+fi
+tmux set -t "$s" status off            # pane target: '=' is rejected here, and the
+                                       # create above already pinned $s exactly
+exec tmux attach -t "=$s"

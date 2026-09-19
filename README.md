@@ -46,7 +46,7 @@ type-to-create, with no extra dependency.
 - **Arrow-pick existing**: `↑`/`↓` through live sessions, each showing whether
   it is already attached and its current directory. Text you typed is kept if
   you arrow away and back.
-- **`Esc`** drops to a plain shell (no tmux).
+- **`Esc`** (or `Ctrl-D`) drops to a plain shell (no tmux).
 - **Localizable UI** with a small i18n table that follows the system locale.
   English and Chinese ship by default; adding a language is one copy-paste block
   (contributions welcome).
