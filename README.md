@@ -50,7 +50,11 @@ type-to-create, with no extra dependency.
 - **Localizable UI** with a small i18n table that follows the system locale.
   English and Chinese ship by default; adding a language is one copy-paste block
   (contributions welcome).
-- **Zero dependencies**, ~190 lines of bash, with a safe fallback to a one-line
+- **Survives a wiped `/tmp`**: if a tmp cleaner deleted the socket of a tmux
+  server that is still running, the picker has that server recreate it
+  (`SIGUSR1`, see tmux(1)) before listing, so the menu shows the sessions that
+  are still alive. This step uses `ss` from iproute2 and is skipped without it.
+- **Zero dependencies**, ~250 lines of bash, with a safe fallback to a one-line
   prompt when there is no TTY, no sessions, or anything goes wrong, so a
   terminal can never fail to open.
 
@@ -233,8 +237,9 @@ itself comes back, which is the part that matters).
 
 UI strings live in associative-array catalogs near the top of the script. Copy
 `MSG_en`, translate the values, name it `MSG_<code>`, and add a pattern to
-`detect_lang()`. `{name}` in `[auto]` is replaced by the auto-name;
-`[attached_pad]` must be spaces of the same display width as `[attached]`.
+`detect_lang()`. `{name}` in `[auto]` is replaced by the auto-name and `{pid}`
+in `[healed]` by the tmux server's pid; `[attached_pad]` must be spaces of the
+same display width as `[attached]`.
 
 ## How it works
 

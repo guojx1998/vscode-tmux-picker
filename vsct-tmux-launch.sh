@@ -12,7 +12,9 @@
 #                   "<prefix>-<pid>");  a session row -> attach to that session
 #   * Esc           drop to a plain shell (no tmux)
 # With no TTY / no existing sessions / on any error it falls back to a one-line
-# prompt, so a terminal can never fail to open.
+# prompt, so a terminal can never fail to open. If a tmp cleaner deleted the
+# socket of a server that is still running, the server is asked to recreate it
+# before the menu is built (see heal_socket).
 #
 # Requires bash >= 4.3 (associative arrays + namerefs, for the i18n table).
 # Env config:
@@ -47,6 +49,7 @@
 # Add a language: copy MSG_en, translate the values, name it MSG_<code>, and add
 # a pattern to detect_lang(). Force one with VSCT_LANG=<code>.
 #   {name}          in [auto] is replaced by the auto-name.
+#   {pid}           in [healed] is replaced by the tmux server's pid.
 #   [attached_pad]  must be spaces of the SAME display width as [attached]; it
 #                   pads detached rows so the path column lines up.
 declare -A MSG_en=(
@@ -56,6 +59,7 @@ declare -A MSG_en=(
   [attached]="·attached"
   [attached_pad]="         "
   [prompt]="tmux name (empty = auto): "
+  [healed]="tmux socket file was missing; the running server (pid {pid}) recreated it"
 )
 declare -A MSG_zh=(
   [hint]=" 输名字新建 tmux 会话 · ↑↓ 选已有 · ←→ 移光标 · Enter 确认 · Esc 退普通 shell"
@@ -64,6 +68,7 @@ declare -A MSG_zh=(
   [attached]="·已连"
   [attached_pad]="     "
   [prompt]="tmux name (empty = auto): "
+  [healed]="tmux 套接字文件丢失, 已让仍在运行的服务器 (pid {pid}) 重建"
 )
 
 detect_lang() {
@@ -89,7 +94,46 @@ LBL_NEW="${_CAT[new]}"
 MARK_ATT="${_CAT[attached]}"
 MARK_PAD="${_CAT[attached_pad]}"
 PROMPT="${_CAT[prompt]}"
+HEALED="${_CAT[healed]}"
 unset -n _CAT 2>/dev/null; unset _a _lang
+
+# --- socket self-heal -------------------------------------------------------
+# A tmp cleaner can delete the socket file of a server that is still running.
+# Its sessions live on, but no new client can reach them: the menu would come up
+# empty and Enter would start a second, empty server. tmux recreates its socket
+# on SIGUSR1 (tmux(1), SIGNALS), so when the file is missing, find the server
+# still listening on that path and signal it. ss(8) reports the bound path of a
+# listener even after the file is gone; without ss this is a no-op.
+heal_socket() {
+  local base sock dir pids pid perm i
+  base="$(cd -P -- "${TMUX_TMPDIR:-/tmp}" 2>/dev/null && pwd)" || base=/tmp
+  sock="${TMUX:+${TMUX%%,*}}"                     # tmux itself prefers $TMUX
+  sock="${sock:-$base/tmux-$UID/default}"
+  [ -S "$sock" ] && return 0
+  command -v ss >/dev/null 2>&1 || return 1
+  pids="$(ss -xlpH 2>/dev/null | awk -v p="$sock" '$5 == p && /"tmux/ {
+      while (match($0, /pid=[0-9]+/)) {
+        print substr($0, RSTART + 4, RLENGTH - 4); $0 = substr($0, RSTART + RLENGTH)
+      } }')"
+  [ -n "$pids" ] || return 1
+  # More than one server can be bound to the path; take the oldest.
+  pid="$(ps -o etimes=,pid= -p "${pids//$'\n'/,}" 2>/dev/null | sort -rn | awk 'NR == 1 { print $2 }')"
+  [ -n "$pid" ] || return 1
+  dir="${sock%/*}"
+  if [ "$dir" = "$base/tmux-$UID" ]; then
+    # The cleaner may have taken this directory too. tmux clients only accept
+    # it when it is ours and closed to others, so check before the server binds.
+    mkdir -p -m 700 -- "$dir" 2>/dev/null
+    perm="$(stat -c %a -- "$dir" 2>/dev/null)" || return 1
+    [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] && (( (8#$perm & 7) == 0 )) || return 1
+  fi
+  kill -USR1 "$pid" 2>/dev/null || return 1
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if [ -S "$sock" ]; then printf '%s\n' "${HEALED/\{pid\}/$pid}" >&2; return 0; fi
+    sleep 0.1
+  done
+  return 1
+}
 
 # --- one-line fallback (no TTY / no sessions / error) -----------------------
 classic_read() {
@@ -185,6 +229,7 @@ pick_session() {
   done
 }
 
+heal_socket
 s="$(pick_session)"; rc=$?
 [ "$rc" -eq 2 ] && exec "${SHELL:-/bin/bash}" -l       # Esc -> plain shell, no tmux
 [ -z "$s" ] && s="$AUTO"
