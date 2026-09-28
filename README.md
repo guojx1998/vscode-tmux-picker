@@ -152,6 +152,9 @@ tmux dies with the host, so a reboot normally wipes every session. The
 
 - a cron job snapshots the live sessions (names, windows/panes, cwd, and the
   command each pane runs) to `~/.local/state/vsct/snapshot.json` every 2 min;
+  before that it runs the picker's socket self-heal, so a server whose socket
+  a tmp cleaner deleted is reachable again within 2 min even if no terminal
+  is opened;
 - a systemd **user** unit recreates them **under the same names** at boot;
   the picker then attaches to the restored sessions as if nothing happened;
 - panes that were running **Claude Code** (plain `claude` or wrapped in

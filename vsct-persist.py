@@ -3,7 +3,9 @@
 #
 #   snapshot   Dump the live tmux sessions (names / windows / panes / cwd and
 #              the command running in each pane) to a JSON state file. Meant to
-#              run from cron every couple of minutes.
+#              run from cron every couple of minutes. If a tmp cleaner deleted
+#              the socket of a server that is still running, the server is
+#              first asked to recreate it (see heal_socket).
 #   restore    After a reboot, recreate the snapshotted sessions under the same
 #              names. Panes that were running Claude Code (plain `claude` or
 #              wrapped in `happy`) are relaunched with `--resume <session-id>`
@@ -63,7 +65,7 @@
 #   systemd:  vsct-restore.service (user) running `vsct-persist.py restore` at
 #             boot; `loginctl enable-linger` so it starts without a login.
 
-import json, os, re, subprocess, sys, time
+import json, os, re, signal, stat, subprocess, sys, time
 from fnmatch import fnmatch
 
 STATE_DIR   = os.path.expanduser(os.environ.get("VSCT_STATE_DIR", "~/.local/state/vsct"))
@@ -246,6 +248,68 @@ def active_jsonls(cwd, config_dir=None):
     return got
 
 # ---------- snapshot ----------
+# ---------- socket self-heal ----------
+def is_socket(path):
+    try:
+        return stat.S_ISSOCK(os.stat(path).st_mode)
+    except OSError:
+        return False
+
+def heal_socket():
+    """A tmp cleaner can delete the socket file of a server that is still
+    running. Its sessions live on, but no new client can reach them, and the
+    next `tmux new-session` starts a second, empty server. tmux recreates its
+    socket on SIGUSR1 (tmux(1), SIGNALS), so when the file is missing, signal
+    the oldest server still listening on that path. ss(8) reports the bound
+    path of a listener even after the file is gone; without ss this is a
+    no-op. Same logic as heal_socket in the picker. Returns the pid or None."""
+    base = os.environ.get("TMUX_TMPDIR") or "/tmp"
+    base = os.path.realpath(base) if os.path.isdir(base) else "/tmp"
+    label_dir = os.path.join(base, f"tmux-{os.getuid()}")
+    sock = os.environ.get("TMUX", "").split(",")[0] \
+        or os.path.join(label_dir, "default")   # tmux itself prefers $TMUX
+    if is_socket(sock):
+        return None
+    try:
+        out = sh(["ss", "-xlpH"]).stdout
+    except OSError:
+        return None
+    pids = set()
+    for line in out.splitlines():
+        f = line.split()
+        if len(f) > 4 and f[4] == sock and '"tmux' in line:
+            pids |= {int(m) for m in re.findall(r"pid=(\d+)", line)}
+    if not pids:
+        return None
+    # More than one server can be bound to the path; take the oldest.
+    pid = min(pids, key=lambda p: starttime(p) or float("inf"))
+    d = os.path.dirname(sock)
+    if d == label_dir:
+        # The cleaner may have taken this directory too. tmux clients only
+        # accept it when it is ours and closed to others, so check before the
+        # server binds.
+        try:
+            if not os.path.lexists(d):
+                os.mkdir(d, 0o700)
+                os.chmod(d, 0o700)
+            st = os.lstat(d)
+        except OSError:
+            return None
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() \
+           or st.st_mode & 0o007:
+            return None
+    try:
+        os.kill(pid, signal.SIGUSR1)
+    except OSError:
+        return None
+    for _ in range(10):
+        if is_socket(sock):
+            print(f"{time.strftime('%F %T')} tmux socket {sock} was missing; "
+                  f"server pid {pid} recreated it", file=sys.stderr)
+            return pid
+        time.sleep(0.1)
+    return None
+
 def take_snapshot(force=False):
     os.makedirs(STATE_DIR, exist_ok=True)
     # fresh-boot guard: don't clobber the pre-reboot state before restore ran
@@ -255,6 +319,7 @@ def take_snapshot(force=False):
         up = float(f.read().split()[0])
     if not (stamped or up > 1800 or force):
         return 0                       # silently keep the previous snapshot
+    heal_socket()
     r = tmux(["list-panes", "-a", "-F",
               "#{session_name}\t#{window_index}\t#{window_name}\t#{window_layout}"
               "\t#{pane_index}\t#{pane_current_path}\t#{pane_pid}\t#{pane_id}"])

@@ -111,7 +111,8 @@ bind -T copy-mode-vi End  send -X cancel
 tmux 随主机一起死，重启一次会话全没。`vsct-persist.py` 附加件把它们带回来：
 
 - cron 每 2 分钟把活着的会话（名字、窗口/pane、cwd、每个 pane 里跑的命令）快照到
-  `~/.local/state/vsct/snapshot.json`；
+  `~/.local/state/vsct/snapshot.json`；快照前先跑一遍与 picker 相同的套接字自愈，所以 tmp 清理删掉套接字后，即使不开终端，
+  2 分钟内也能重新连上仍在运行的服务器；
 - 开机时 systemd **user** 单元**同名重建**这些会话，之后 picker 一如既往地接入，
   像什么都没发生过；
 - 之前跑着 **Claude Code**（裸 `claude` 或
